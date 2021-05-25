@@ -9,7 +9,7 @@ We use the technology of `Convolutional Recurrent Neural Networks` from `Keras` 
 
 # Dependencies
 1. tensorflow
-1. [IndicScribe](https://github.com/rakeshvar/IndicScribe) - My package for generating complex text, including Indian languages like Telugu, on the fly
+1. [Lekhaka](https://github.com/rakeshvar/Lekhaka) - My 'scribing' package for generating complex text, including Indian languages like Telugu, on the fly
 
 # Setup
 1. Install TensorFlow

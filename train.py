@@ -3,9 +3,9 @@ import utils
 
 import sys
 sys.path.append("..")
-from IndicScribe.scribe import Scribe
+from Lekhaka.scribe import Scribe
 from model import build_model
-import IndicScribe.telugu as lang
+import Lekhaka.telugu as lang
 
 """Initialize """
 scribe_args = {
