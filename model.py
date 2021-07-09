@@ -1,52 +1,67 @@
 from tensorflow import keras
 from tensorflow.keras import layers
 
+from model_specs import actv
+from utils import couple
+
 
 class CTCLayer(layers.Layer):
     def __init__(self, name=None):
         super().__init__(name=name)
         self.loss_fn = keras.backend.ctc_batch_cost
 
-    def call(self, y_true, y_pred, input_length, label_length):
-        loss = self.loss_fn(y_true, y_pred, input_length, label_length)
+    def call(self, y_true, y_pred, image_widths, labeling_lengths):
+        loss = self.loss_fn(y_true, y_pred, image_widths, labeling_lengths)
         self.add_loss(loss)
         return y_pred
 
 
+def conv_pool(layer_specs, inputs, weights=None):
+    if weights is None:
+        weights = [None for _ in layer_specs]
+
+    x = inputs
+    width_down, height_down, filters = 1, 1, 1
+    for spec, lwts in zip(layer_specs, weights):
+        name = spec['name']
+        if name.lower().startswith("conv"):
+            filters = spec.pop('filters')
+            kernel_size = spec.pop('kernel_size')
+            x = layers.Conv2D(filters, kernel_size, **spec)(x)
+        elif name.lower().startswith("pool"):
+            pool_size = couple(spec.pop("pool_size"))
+            x = layers.MaxPooling2D(pool_size, **spec)(x)
+            width_down *= pool_size[0]
+            height_down *= pool_size[1]
+
+    return x, width_down, height_down, filters
+
+
 def build_model(num_chars,
-                img_height, img_width,
-                labelslen,
-                num_dense_features,
-                num_out,
-                layerspecs):
-    input_img = layers.Input(name="image", shape=(img_width, img_height, 1), dtype="float64")
-    labels    = layers.Input(name="label", shape=(labelslen,), dtype="int64")
-    input_length = layers.Input(name='input_length', shape=(1,), dtype='int64')
-    label_length = layers.Input(name='label_length', shape=(1,), dtype='int64')
+                img_height, img_width_max, batch_size,
+                max_labelings_len,
+                num_dense,
+                num_lstm_out,
+                conv_pool_specs):
+    image = layers.Input(name="image", batch_shape=(batch_size, img_width_max, img_height, 1), dtype="float64")
+    labeling = layers.Input(name="labeling", batch_shape=(batch_size, max_labelings_len,), dtype="int64")
+    image_width = layers.Input(name='image_width', batch_shape=(batch_size, 1,), dtype='int64')
+    labeling_length = layers.Input(name='labeling_length', batch_shape=(batch_size, 1,), dtype='int64')
 
-    x = input_img
-    width_down, height_down, num_kernels = 1, 1, 1
-    for lyr in layerspecs:
-        if lyr[0].startswith('conv'):
-            x = layers.Conv2D(lyr[1], lyr[2], activation="tanh", kernel_initializer="he_normal", padding="same", name=lyr[0])(x)
-            num_kernels = lyr[1]
-        if lyr[0].startswith('pool'):
-            x = layers.MaxPooling2D(lyr[1], name=lyr[0])(x)
-            width_down *= lyr[1][0]
-            height_down *= lyr[1][1]
-
-    img_width = img_width // width_down
+    x, width_down, height_down, num_kernels = conv_pool(conv_pool_specs, image)
+    img_width_max = img_width_max // width_down
     img_height = img_height // height_down
-    new_shape = img_width, img_height * num_kernels
+    new_shape = img_width_max, img_height * num_kernels
     x = layers.Reshape(target_shape=new_shape, name="reshape")(x)
 
-    if num_dense_features > 0:
-        x = layers.Dense(num_dense_features, activation="relu", name="dense1")(x)
-    x = layers.Bidirectional(layers.LSTM(num_out, return_sequences=True))(x)
+    if num_dense > 0:
+        x = layers.Dense(num_dense, activation=actv("relu05"), name="dense1")(x)
+    x = layers.Bidirectional(layers.LSTM(num_lstm_out, return_sequences=True, stateful=True))(x)
     x = layers.Dense(num_chars + 1, activation="softmax", name="softmax")(x)
-    output = CTCLayer(name="ctc_loss")(labels, x, input_length//width_down, label_length)
+    output = CTCLayer(name="ctc_loss")(labeling, x, image_width//width_down, labeling_length)
 
-    model_inputs = [input_img, labels, input_length, label_length]
+    model_inputs = [image, labeling, image_width, labeling_length]
     model = keras.models.Model(inputs=model_inputs, outputs=output, name="ocr_model")
     model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.0001))
+    model.width_scaled_down_by = width_down
     return model

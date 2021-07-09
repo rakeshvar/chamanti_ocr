@@ -54,6 +54,17 @@ def slab_print(slab, col_names=None):
         print('¦ {}'.format(col_names[ir] if col_names else ''))
 
 
+from colored import fg, attr
+reset = attr('reset')
+cols = np.array([f'{fg(231)}█'] + [f'{fg(250-i)}█' for i in range(19)])
+def slab_log(slab, names=None):
+    cslab = cols[np.clip(np.floor(-np.log2(slab)).astype(int), 0, 19)]
+    if names is None:
+        names = ' '*slab.shape[0]
+    for ir, r in enumerate(cslab):
+        print(f'{ir:2d}¦' + ''.join(r) + reset + f'¦ {names[ir]}')
+
+
 class Printer():
     def __init__(self, symbols):
         """
@@ -103,10 +114,10 @@ class Printer():
         if show_imgs and softmax_firings is not None:
             seen_labels = list(set(seen_labels) - set(shown_labels))
             seen_chars = self.labels_to_chars(seen_labels)
-            l = seen_labels + [self.n_classes] + seen_labels
-            c = seen_chars + ['blank'] + seen_chars
+            l = list(shown_labels) + [0, self.n_classes] + seen_labels
+            c = shown_chars + ['space', 'blank'] + seen_chars
             print('SoftMax Firings:')
-            slab_print(softmax_firings[l], c)
+            slab_log(softmax_firings[l], c)
 
 
 def insert_blanks(y, blank, num_blanks_at_start=1):
@@ -152,3 +163,16 @@ def write_dict(d, f=sys.stdout, level=0):
             write_dict(v, f, level+1)
         else:
             print('{}'.format(v), file=f)
+
+def couple(a):
+    return a if (type(a) is tuple) else (a, a)
+
+
+def getpkl(fname):
+    import pickle
+    with open(fname, "rb") as f:
+        data = pickle.load(f)
+        weights = data["allwts"]
+        layer_specs = data["layers"]
+    return layer_specs, weights
+
