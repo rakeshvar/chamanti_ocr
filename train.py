@@ -1,56 +1,74 @@
-from tensorflow import keras
-import utils
 
 import sys
-from model import build_model
+
+from tensorflow import keras
+
+from banti2chamanti import banti2chamanti
+from model_builder import ModelBuilder
+from model_specs import specs
+from post_process import PostProcessor
 
 sys.path.append("../Lekhaka")
 import telugu as lang
 from Lekhaka import Scribe, Deformer, Noiser
-from Lekhaka import ParallelDataGenerator as Gen
+from Lekhaka import DataGenerator as Gen
 
-# Initialize
 from default_args import scribe_args, elastic_args, noise_args
+
+########################################################################### Initialize
+printer = PostProcessor(lang.symbols)
+
 alphabet_size = len(lang.symbols)
 batch_size = 32
-
 scriber = Scribe(lang, **scribe_args)
-printer = utils.Printer(lang.symbols)
 deformer = Deformer(**elastic_args)
 noiser = Noiser(**noise_args)
-gen = Gen(scriber, deformer, noiser, batch_size)
+datagen = Gen(scriber, deformer, noiser, batch_size)
+
 print(scriber)
 
+############################################################################# CRNN Params
+if len(sys.argv) == 1:
+    sys.argv += ['spec', '1']
 
-def data_generator():
-    while True:
-        yield gen.get(), None
+command = sys.argv[1]
+param = sys.argv[2]
+if command == 'spec':
+    layers = specs[int(param)]
+elif command == 'banti':
+    layers = banti2chamanti(param)
+    param = param[:-4]
+elif command == 'chamanti':
+    layers = ...
 
+pkl_fname = f"{command[:2]}-{param}-{{:02d}}-{{}}".format
+print("Saving to files like: ", pkl_fname(0, 99))
 
-# CRNN Params
-num_dense_features = 0
-num_lstm_out = 66
-from model_specs import specs_2 as layer_specs
-
-# Model
-model = build_model(alphabet_size, scribe_args["height"], scriber.width, batch_size,
-                    gen.labelswidth, num_dense_features, num_lstm_out, layer_specs)
-prediction_model = keras.models.Model(model.get_layer(name="image").input,
-                                      model.get_layer(name="softmax").output)
+############################################################################## Model
+print("\n\nBuilding Model")
+xy_info = {
+    "batch_size": batch_size,
+    "slab_max_wd": scriber.width,
+    "slab_ht": scribe_args["height"],
+    "labels_max_len": datagen.labelswidth,
+    "alphabet_size": alphabet_size
+}
+mb = ModelBuilder(layers, xy_info)
+model = mb.model
 model.summary()
-# prediction_model.summary()
+prediction_model = keras.models.Model(model.get_layer(name="image").input,
+                                      model.get_layer(name="output").output)
 
 
 class MyCallBack(keras.callbacks.Callback):
-    def on_epoch_begin(self, epoch, logs=None):
-        num_samples = 5
-        image, labels, image_lengths, label_lengths = gen.get()
+    @staticmethod
+    def on_epoch_begin(epoch, logs=None):
+        image, labels, image_lengths, label_lengths = datagen.get()
         probabilities = prediction_model.predict(image)
-        for i in range(num_samples):
-            printer.show_all(labels[i][:label_lengths[i]],
-                             image[i, :image_lengths[i]:2, ::2, 0].T,
-                             probabilities[i, :image_lengths[i]//model.width_scaled_down_by].T,
-                             (i == num_samples-1))
+        probs_lengths = image_lengths // model.width_scaled_down_by
+        ederr = printer.show_batch(image, image_lengths, labels, label_lengths, probabilities, probs_lengths)
+        mb.save_model_specs_weights(pkl_fname(epoch, ederr))
 
 
-history = model.fit(data_generator(), steps_per_epoch=10, epochs=10, callbacks=[MyCallBack()])
+history = model.fit(datagen.keras_data_generator(), steps_per_epoch=100, epochs=100, callbacks=[MyCallBack()])
+print(history)

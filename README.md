@@ -13,15 +13,17 @@ We use the technology of `Convolutional Recurrent Neural Networks` from `Keras` 
 
 # Setup
 1. Install TensorFlow
-1. Download IndicScribe and place in a parallel dicrectory
+1. Download Lekhaka and place in a parallel dicrectory
 
 # Files
-1. `model.py` The TensorFlow CRNN model with CTC loss
+1. `model_builder.py` The TensorFlow CRNN model with CTC loss
 1. `train.py` Main file to run
-1. `utils.py` Utilities to print images and Probabilities to terminal, etc.
+1. `utils.py`, `post_process.py` Utilities to print images and Probabilities to terminal, etc.
 
 ## Training the CRNN
 You can now train a CRNN to read Telugu text! 
 ```sh
-python3 train.py
+python3 train.py spec 1
+python3 train.py banti banti_trained_instance.pkl
+python3 train.py chamanti chamanti_trained_instance.pkl
 ```
