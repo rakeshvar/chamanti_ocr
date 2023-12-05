@@ -33,7 +33,7 @@ def read_args(files, default='configs/default.ast'):
 def pprint_probs(probs):
     for row in (10 * probs).astype(int):
         for val in row:
-            print('{:+04d}'.format(val), end='')
+            print(f'{val:+04d}', end='')
         print()
 
 
@@ -59,7 +59,8 @@ def actv(name):
             return keras.activations.relu(x, alpha=int(name[4:]) / 100.)
         _f.name = name
         return _f
-    return name
+    else:
+        return name
 
 
 def cp(name, num_filters, kernel_size, activation, **kwargs):

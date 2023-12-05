@@ -5,6 +5,9 @@ from tensorflow import keras
 from tensorflow.keras.layers import Layer, Input, Conv2D, MaxPooling2D, Reshape, Dense, \
     Bidirectional, LSTM, SimpleRNN, GRU
 
+from banti2chamanti import banti2chamanti
+from utils import rnn, write_dict
+
 
 class CTCLayer(Layer):
     """ You can directly add the loss to the model. But having this class makes the model summary look good. """
@@ -19,7 +22,7 @@ class CTCLayer(Layer):
 
 
 class ModelBuilder:
-    def __init__(self, layer_args, xy_info, list_of_weights=None):
+    def __init__(self, xy_info, layer_args, list_of_weights=None):
         # Information about the input image and the output labels
         batch_size = xy_info["batch_size"]
         slab_max_wd = xy_info["slab_max_wd"]
@@ -56,12 +59,15 @@ class ModelBuilder:
         new_shape = slab_max_wd // width_down, (slab_ht // height_down) * num_filters
         layers.append(Reshape(target_shape=new_shape, name="reshape"))
 
-        # Add dense layers and lstm layers
+        # Add dense layers
+        while layer_args[i]['name'].lower().startswith('den'):
+            layers.append(Dense(**layer_args[i]))
+            i += 1
+
+        # Add recurrent layers
         for largs in layer_args[i:]:
             name = largs['name']
-            if name.lower().startswith('den'):
-                layer = Dense(**largs)
-            elif name.lower().startswith('lstm'):
+            if name.lower().startswith('lstm'):
                 layer = Bidirectional(LSTM(**largs, return_sequences=True, stateful=True))
             elif name.lower().startswith('rnn'):
                 layer = Bidirectional(SimpleRNN(**largs, return_sequences=True, stateful=True))
@@ -75,26 +81,29 @@ class ModelBuilder:
         layers.append(Dense(alphabet_size + 1, activation="softmax", name="output"))
 
         # Build the network and add loss
-        x = image
-        for layer in layers:
-            x = layer(x)
-        x = CTCLayer("ctc_loss", width_down)(labeling, x, image_width, labeling_length)
+        out = image
+        for layer_ in layers:
+            out = layer_(out)
+        out = CTCLayer("ctc_loss", width_down)(labeling, out, image_width, labeling_length)
 
         # Compile a model
         model_inputs = [image, labeling, image_width, labeling_length]
-        model = keras.models.Model(inputs=model_inputs, outputs=x, name="crnn_ctc_model")
+        model = keras.models.Model(inputs=model_inputs, outputs=out, name="crnn_ctc_model")
         if list_of_weights is not None:
-            model.set_weights()
+            model.set_weights(list_of_weights)
 
         model.compile(optimizer=keras.optimizers.Adam(learning_rate=0.0001))
         model.width_scaled_down_by = width_down
 
-        # Store all in self
-        for la in layer_args:
-            la.pop("weights", None)
-            if 'activation' in la and type(la['activation']) != str:
-                la['activation'] = la['activation'].name
+        # Simplify layer_args to be picklable
+        for largs in layer_args:
+            largs.pop("weights", None)
+            if 'activation' in largs:
+                if type(largs['activation']) != str:
+                    largs['activation'] = largs['activation'].name
+            write_dict(largs)
 
+        # Store all in self
         self.model = model
         self.xy_info = xy_info
         self.layer_args = layer_args
@@ -110,8 +119,25 @@ class ModelBuilder:
             pickle.dump(info, f, 3)
         print("Saved ", filename)
 
+    @classmethod
+    def from_chamanti(cls, xy_info, pkl_file_name):
+        with open(pkl_file_name, "rb") as f:
+            xy_info_read, layer_args, list_of_weights = pickle.load(f)
+        for k in xy_info_read:
+            assert xy_info[k] == xy_info_read[k], f"Could not match Key '{k}' : {xy_info[k]} != {xy_info_read[k]}"
+        return cls(xy_info, layer_args, list_of_weights)
 
-def model_builder_from_chamanti(pkl_file_name):
-    with open(pkl_file_name, "rb") as f:
-        xy_info, layer_args, list_of_weights = pickle.load(f)
-    return ModelBuilder(xy_info, layer_args, list_of_weights)
+    @classmethod
+    def from_banti(cls, xy_info, pkl_file_name, rnn_args=None, *args, **kwargs):
+        layer_args = banti2chamanti(pkl_file_name, *args, **kwargs)
+        if type(rnn_args) is str:
+            name = rnn_args.rstrip('0123456789')
+            assert name in ('lstm', 'gru', 'rnn')
+            try:
+                nunits = int(rnn_args[len(name):])
+            except ValueError:
+                nunits = layer_args[-1]['nunits']//2
+            layer_args.append(rnn(name, nunits))
+        elif type(rnn_args) is list:
+            layer_args += rnn_args
+        return cls(xy_info, layer_args)

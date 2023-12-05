@@ -20,15 +20,17 @@ def banti2chamanti(banti_pkl_file_name,
     print("Loading weights from ", banti_pkl_file_name)
     with open(banti_pkl_file_name, 'rb') as f:
         d = pickle.load(f)
-        bspecs = d["layers"]
-        bwts = d["allwts"]
+
+    banti_specs = d["layers"]
+    banti_wts = d["allwts"]
+    num_banti_layers = len(banti_specs)
 
     layer_args = []
     last_pool = None
     n, nconv, npool, nmaps = 0, 0, 0, 1
 
-    while n < len(bspecs):
-        name, spec = bspecs[n]
+    while n < num_banti_layers:
+        name, spec = banti_specs[n]
         if name == 'ElasticLayer':
             pass
         elif name == 'ConvLayer':
@@ -36,7 +38,7 @@ def banti2chamanti(banti_pkl_file_name,
                 assert spec['mode'] == 'same'
             nconv += 1
             nmaps = spec['num_maps']
-            w, b = bwts[n]
+            w, b = banti_wts[n]
             layer_args.append(cp(f'conv{nconv}', nmaps, spec['filter_sz'], spec['actvn'],
                                  weights=(w.T, b), trainable=conv_trainable))
         elif name == 'PoolLayer':
@@ -50,17 +52,16 @@ def banti2chamanti(banti_pkl_file_name,
     if dont_pool_along_width:
         last_pool['pool_size'] = (1, last_pool['pool_size'][1])
 
-    if bspecs[n][0] in ('SoftmaxLayer', 'HiddenLayer'):
-        w, b = bwts[n]
-        nin, nout = w.shape
-        d = int((nin//nmaps)**.5)
-        assert nin == nmaps*d*d                         # eg: 5342 = 162*6*6
-        w = w.reshape((nmaps, d, d, nout))
-        w = w[:, :, d//2-1, :].reshape((nmaps*d, nout))  # Extract the middle column
-        try:
-            actvn = bspecs[n][1]["actvn"]
-        except KeyError:
-            actvn = "linear"
-        layer_args.append(den('dense1', len(b), actvn, weights=(w, b), trainable=dense_trainable))
+    if n < num_banti_layers:
+        name, spec = banti_specs[n]
+        if name in ('SoftmaxLayer', 'HiddenLayer'):
+            w, b = banti_wts[n]
+            nin, nout = w.shape
+            d = int((nin//nmaps)**.5)
+            assert nin == nmaps*d*d                         # eg: 5342 = 162*6*6
+            w = w.reshape((nmaps, d, d, nout))
+            w = w[:, :, d//2-1, :].reshape((nmaps*d, nout))  # Extract the middle column
+            actvn = spec.get("actvn", "linear")
+            layer_args.append(den('dense1', nout, actvn, weights=(w, b), trainable=dense_trainable))
 
     return layer_args

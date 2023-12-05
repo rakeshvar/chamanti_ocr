@@ -1,9 +1,7 @@
-
 import sys
 
 from tensorflow import keras
 
-from banti2chamanti import banti2chamanti
 from model_builder import ModelBuilder
 from model_specs import specs
 from post_process import PostProcessor
@@ -27,25 +25,6 @@ datagen = Gen(scriber, deformer, noiser, batch_size)
 
 print(scriber)
 
-############################################################################# CRNN Params
-if len(sys.argv) == 1:
-    sys.argv += ['spec', '1']
-
-command = sys.argv[1]
-param = sys.argv[2]
-if command == 'spec':
-    layers = specs[int(param)]
-elif command == 'banti':
-    layers = banti2chamanti(param)
-    param = param[:-4]
-elif command == 'chamanti':
-    layers = ...
-
-pkl_fname = f"{command[:2]}-{param}-{{:02d}}-{{}}".format
-print("Saving to files like: ", pkl_fname(0, 99))
-
-############################################################################## Model
-print("\n\nBuilding Model")
 xy_info = {
     "batch_size": batch_size,
     "slab_max_wd": scriber.width,
@@ -53,11 +32,40 @@ xy_info = {
     "labels_max_len": datagen.labelswidth,
     "alphabet_size": alphabet_size
 }
-mb = ModelBuilder(layers, xy_info)
+############################################################################# CRNN Params
+if len(sys.argv) == 1:
+    print("""Usage:
+    python {0} command argument(s)
+    command - spec / banti / chamanti
+    {0} spec 0
+    {0} banti deepcnn.pkl lstm66
+    {0} chamanti cnn-rnn.pkl 
+    """.format(sys.argv[0]))
+    sys.exit(-1)
+
+command = sys.argv[1]
+argument = 0 if command == 'spec' and len(sys.argv) < 3 else sys.argv[2]
+if command == 'spec':
+    layers = specs[int(argument)]
+    mb = ModelBuilder(xy_info, layers)
+    pkl_namer = f"sp-{argument}-{{:02d}}-{{}}".format
+elif command == 'banti':
+    rnnarg = 'rnn66' if len(sys.argv) < 4 else sys.argv[3]
+    mb = ModelBuilder.from_banti(xy_info, argument, rnnarg)
+    pkl_namer = f"bn-{argument[:-4]}-{{:02d}}-{{}}".format
+elif command == 'chamanti':
+    mb = ModelBuilder.from_chamanti(xy_info, argument)
+    pkl_namer = f"ch-{argument[:-4]}-{{:02d}}-{{}}".format
+else:
+    raise ValueError("Did not understand args: ", sys.argv[1:])
+
+print("Saving to files like: ", pkl_namer(0, 99))
+
+############################################################################## Model
+print("\n\nBuilding Model")
 model = mb.model
 model.summary()
-prediction_model = keras.models.Model(model.get_layer(name="image").input,
-                                      model.get_layer(name="output").output)
+prediction_model = keras.models.Model(model.get_layer(name="image").input, model.get_layer(name="output").output)
 
 
 class MyCallBack(keras.callbacks.Callback):
@@ -67,7 +75,7 @@ class MyCallBack(keras.callbacks.Callback):
         probabilities = prediction_model.predict(image)
         probs_lengths = image_lengths // model.width_scaled_down_by
         ederr = printer.show_batch(image, image_lengths, labels, label_lengths, probabilities, probs_lengths)
-        mb.save_model_specs_weights(pkl_fname(epoch, ederr))
+        mb.save_model_specs_weights(pkl_namer(epoch, ederr))
 
 
 history = model.fit(datagen.keras_data_generator(), steps_per_epoch=100, epochs=100, callbacks=[MyCallBack()])

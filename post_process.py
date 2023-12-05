@@ -38,6 +38,16 @@ def get_printer(thresholds, chars):
 slab_print = get_printer(*bins2)
 
 
+def charray_to_str(charray):
+    return ' '.join(charray)
+
+
+def myshow(name, labels, chars):
+    if len(labels) > 0:
+        labels_ = str(np.asarray(labels)).replace('\n', '')
+        print(f"{name}: {labels_} {charray_to_str(chars)}")
+
+
 class PostProcessor:
     def __init__(self, symbols):
         self.n_classes = len(symbols)
@@ -59,29 +69,38 @@ class PostProcessor:
 
     def show_all(self, shown_labels, shown_img, softmax_firings, show_imgs):
         shown_chars = self.labels_to_chars(shown_labels)
-        print(f'Shown : {shown_labels} {shown_chars}')
+        myshow('Shown  ', shown_labels, shown_chars)
 
         if softmax_firings is not None:
             seen_labels = self.decode(softmax_firings)
             seen_chars = self.labels_to_chars(seen_labels)
-            print(f'Seen  : {seen_labels} {seen_chars}')
+            myshow('Seen   ', seen_labels, seen_chars)
+
+            set_seen, set_shown = set(seen_labels), set(shown_labels)
+
+            missed_labels = list(set_shown - set_seen)
+            missed_chars = self.labels_to_chars(missed_labels)
+            myshow('Missed ', missed_labels, missed_chars)
+
+            extra_labels = list(set_seen - set_shown)
+            extra_chars = self.labels_to_chars(extra_labels)
+            myshow('Extras ', extra_labels, extra_chars)
+            print()
 
         if show_imgs:
             print('Image Shown:')
             slab_print(shown_img)
 
-        if show_imgs and softmax_firings is not None:
-            seen_labels = list(set(seen_labels) - set(shown_labels))
-            seen_chars = self.labels_to_chars(seen_labels)
-            l = list(shown_labels) + [0, self.n_classes] + seen_labels
-            c = shown_chars + ['space', 'blank'] + seen_chars
-            print('SoftMax Firings:')
-            slab_log(softmax_firings[l], c)
+            if softmax_firings is not None:
+                print('SoftMax Firings:')
+                l = list(shown_labels) + [0, self.n_classes] + extra_labels
+                c = shown_chars + ['space', 'blank'] + extra_chars
+                slab_log(softmax_firings[l], c)
 
     def editdistances(self, truths, lengths, probabilities, problengths):
         guesses = [self.decode(prob[:il].T) for prob, il in zip(probabilities, problengths)]
-        tot_len = sum(max(l1, l2) for l1, l2 in zip(lengths, problengths))
-        tot_dist = sum(editdistance.eval(t, g) for t, l, g in zip(truths, lengths, guesses))
+        tot_len = sum(map(max, lengths, map(len, guesses)))
+        tot_dist = sum(editdistance.eval(t[:l], g) for t, l, g in zip(truths, lengths, guesses))
         err = tot_dist / tot_len
         print(f"Edit distance: {tot_dist}/{tot_len} = {err:.2f}")
         return int(100*err)
