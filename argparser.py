@@ -11,7 +11,7 @@ except ModuleNotFoundError as e:
           "or\n"
           "Install directly from GitHub repo as \n"
           "$pip install -e git+https://github.com/rakeshvar/Lekhaka.git#egg=Lekhaka")
-    sys.exit(-1)
+    sys.exit(0)
 
 import argparse
 
