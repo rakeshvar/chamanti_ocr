@@ -56,7 +56,7 @@ def couple(a):
 def actv(name):
     if name.startswith('relu') and len(name) > 4:
         def _f(x):
-            return keras.activations.relu(x, alpha=int(name[4:]) / 100.)
+            return keras.activations.relu(x, negative_slope=int(name[4:]) / 100.)
         _f.name = name
         return _f
     else:

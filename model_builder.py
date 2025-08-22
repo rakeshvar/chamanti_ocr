@@ -112,7 +112,6 @@ class ModelBuilder:
     def save_model_specs_weights(self, filename):
         if filename[-4:] != '.pkl':
             filename += '.pkl'
-        filename = os.path.basename(filename)
 
         info = self.xy_info, self.layer_args, self.model.get_weights()
         with open(filename, "wb") as f:

@@ -1,27 +1,32 @@
 import sys
+from pathlib import Path
 
+import tensorflow as tf
 from tensorflow import keras
 
 from model_builder import ModelBuilder
 from model_specs import specs
 from post_process import PostProcessor
+from argparser import args
 
-sys.path.append("../Lekhaka")
+# Need to make sure Lekhaka and telugu are in path
 import telugu as lang
 from Lekhaka import Scribe, Deformer, Noiser
-from Lekhaka import DataGenerator as Gen
+from Lekhaka import DataGenerator
 
 from default_args import scribe_args, elastic_args, noise_args
 
-########################################################################### Initialize
-printer = PostProcessor(lang.symbols)
+############################################################################## Parse Args & Initialize
+out_dir = Path(args.output_dir)
+out_dir.mkdir(parents=True, exist_ok=True)
 
+batch_size = args.batch_size
+printer = PostProcessor(lang.symbols)
 alphabet_size = len(lang.symbols)
-batch_size = 32
 scriber = Scribe(lang, **scribe_args)
 deformer = Deformer(**elastic_args)
 noiser = Noiser(**noise_args)
-datagen = Gen(scriber, deformer, noiser, batch_size)
+datagen = DataGenerator(scriber, deformer, noiser, batch_size)
 
 print(scriber)
 
@@ -32,41 +37,59 @@ xy_info = {
     "labels_max_len": datagen.labelswidth,
     "alphabet_size": alphabet_size
 }
-############################################################################# CRNN Params
-if len(sys.argv) == 1:
-    print("""Usage:
-    python {0} command argument(s)
-    command - spec / banti / chamanti
-    {0} spec 0
-    {0} banti deepcnn.pkl lstm66
-    {0} chamanti cnn-rnn.pkl 
-    """.format(sys.argv[0]))
-    sys.exit(-1)
 
-command = sys.argv[1]
-argument = 0 if command == 'spec' and len(sys.argv) < 3 else sys.argv[2]
-if command == 'spec':
-    layers = specs[int(argument)]
+############################################################################# Set-Up Dataset
+
+dataset = tf.data.Dataset.from_generator(
+    datagen.generator,
+    output_signature=(
+        tf.TensorSpec(shape=(batch_size, scriber.width, scriber.height, 1), dtype=tf.float32),
+        tf.TensorSpec(shape=(batch_size, datagen.labelswidth), dtype=tf.int32),
+        tf.TensorSpec(shape=(batch_size,), dtype=tf.int32),
+        tf.TensorSpec(shape=(batch_size,), dtype=tf.int32))
+).prefetch(buffer_size=tf.data.AUTOTUNE)
+
+def proper_x_y(images, labels, image_lengths, label_lengths):
+    return {
+        'image': images,
+        'labeling': labels,
+        'image_width': image_lengths,
+        'labeling_length': label_lengths
+    }, labels  # Dummy target for model.fit
+
+dataset = dataset.map(proper_x_y)
+
+########################################################################### Command
+if args.command == "spec":
+    print(f"Running spec with num={args.num}")
+    layers = specs[int(args.num)]
     mb = ModelBuilder(xy_info, layers)
-    pkl_namer = f"sp-{argument}-{{:02d}}-{{}}".format
-elif command == 'banti':
-    rnnarg = 'rnn66' if len(sys.argv) < 4 else sys.argv[3]
-    mb = ModelBuilder.from_banti(xy_info, argument, rnnarg)
-    pkl_namer = f"bn-{argument[:-4]}-{{:02d}}-{{}}".format
-elif command == 'chamanti':
-    mb = ModelBuilder.from_chamanti(xy_info, argument)
-    pkl_namer = f"ch-{argument[:-4]}-{{:02d}}-{{}}".format
-else:
-    raise ValueError("Did not understand args: ", sys.argv[1:])
+    pkl_namer = f"{out_dir}/sp-{args.num}-{{:02d}}-{{}}".format
 
-print("Saving to files like: ", pkl_namer(0, 99))
+elif args.command == "banti":
+    print(f"Running banti with {args.pkl_file}, {args.string_arg}")
+    in_pkl_stem = Path(args.pkl_file).stem
+    mb = ModelBuilder.from_banti(xy_info, args.pkl_file, args.rnnarg)
+    pkl_namer = f"{out_dir}/bn-{in_pkl_stem}-{{:02d}}-{{}}".format
+
+elif args.command == "chamanti":
+    print(f"Running chamanti with {args.pkl_file}")
+    in_pkl_stem = Path(args.pkl_file).stem
+    mb = ModelBuilder.from_chamanti(xy_info, args.pkl_file)
+    pkl_namer = f"{out_dir}/ch-{in_pkl_stem}-{{:02d}}-{{}}".format
+
+else:
+    raise ValueError("Unknown command received: ", args.command)
+
+print("Saving to files like: ", pkl_namer(0, 99), ".pkl")
 
 ############################################################################## Model
 print("\n\nBuilding Model")
 model = mb.model
 model.summary()
-prediction_model = keras.models.Model(model.get_layer(name="image").input, model.get_layer(name="output").output)
-
+prediction_model = keras.models.Model(
+    model.get_layer(name="image").output,
+    model.get_layer(name="output").output)
 
 class MyCallBack(keras.callbacks.Callback):
     @staticmethod
@@ -77,6 +100,5 @@ class MyCallBack(keras.callbacks.Callback):
         ederr = printer.show_batch(image, image_lengths, labels, label_lengths, probabilities, probs_lengths)
         mb.save_model_specs_weights(pkl_namer(epoch, ederr))
 
-
-history = model.fit(datagen.keras_data_generator(), steps_per_epoch=100, epochs=100, callbacks=[MyCallBack()])
+history = model.fit(dataset, steps_per_epoch=args.steps_per_epoch, epochs=args.num_epochs, callbacks=[MyCallBack()])
 print(history)
