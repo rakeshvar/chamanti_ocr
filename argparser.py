@@ -2,7 +2,7 @@ import sys
 
 # Before parsing arguments just check if Lekhaka is importable !?
 try:
-    from Lekhaka import Scribe
+    import Lekhaka
 except ModuleNotFoundError as e:
     print("\n"
           "Lekhaka is not found in import path.\n"

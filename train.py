@@ -10,9 +10,14 @@ from post_process import PostProcessor
 from argparser import args
 
 # Need to make sure Lekhaka and telugu are in path
-import telugu as lang
-from Lekhaka import Scribe, Deformer, Noiser
-from Lekhaka import DataGenerator
+try:
+ import telugu as lang
+ from Lekhaka import Scribe, Deformer, Noiser
+ from Lekhaka import DataGenerator
+except ModuleNotFoundError:
+ import Lekhaka.telugu as lang
+ from Lekhaka.Lekhaka import Scribe, Deformer, Noiser
+ from Lekhaka.Lekhaka import DataGenerator
 
 from default_args import scribe_args, elastic_args, noise_args
 
