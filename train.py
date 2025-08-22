@@ -14,7 +14,8 @@ try:
  import telugu as lang
  from Lekhaka import Scribe, Deformer, Noiser
  from Lekhaka import DataGenerator
-except ModuleNotFoundError:
+except ModuleNotFoundError as e:
+ raise e
  import Lekhaka.telugu as lang
  from Lekhaka.Lekhaka import Scribe, Deformer, Noiser
  from Lekhaka.Lekhaka import DataGenerator

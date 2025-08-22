@@ -2,7 +2,7 @@ import sys
 
 # Before parsing arguments just check if Lekhaka is importable !?
 try:
-    import Lekhaka
+    import telugu
 except ModuleNotFoundError as e:
     print("\n"
           "Lekhaka is not found in import path.\n"
