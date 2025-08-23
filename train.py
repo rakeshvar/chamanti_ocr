@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 
 import tensorflow as tf
@@ -14,18 +13,18 @@ try:
  import telugu as lang
  from Lekhaka import Scribe, Deformer, Noiser
  from Lekhaka import DataGenerator
-except ModuleNotFoundError as e:
- raise e
+except ModuleNotFoundError:
  import Lekhaka.telugu as lang
  from Lekhaka.Lekhaka import Scribe, Deformer, Noiser
  from Lekhaka.Lekhaka import DataGenerator
 
-from default_args import scribe_args, elastic_args, noise_args
+
+elastic_args0 = { 'translation': 0, 'zoom': .0, 'elastic_magnitude': 0, 'sigma': 1, 'angle': 0, 'nearest': True}
+elastic_args = { 'translation': 5, 'zoom': .15, 'elastic_magnitude': 0, 'sigma': 30, 'angle': 3, 'nearest': True}
+noise_args = { 'num_blots': 25, 'erase_fraction': .9, 'minsize': 4, 'maxsize': 9}
+scribe_args = { 'height': 0, 'hbuffer': 5, 'vbuffer': 0, 'nchars_per_sample': 0}
 
 ############################################################################## Parse Args & Initialize
-out_dir = Path(args.output_dir)
-out_dir.mkdir(parents=True, exist_ok=True)
-
 batch_size = args.batch_size
 printer = PostProcessor(lang.symbols)
 alphabet_size = len(lang.symbols)
@@ -43,13 +42,14 @@ xy_info = {
     "labels_max_len": datagen.labelswidth,
     "alphabet_size": alphabet_size
 }
+print(xy_info)
 
 ############################################################################# Set-Up Dataset
 
 dataset = tf.data.Dataset.from_generator(
     datagen.generator,
     output_signature=(
-        tf.TensorSpec(shape=(batch_size, scriber.width, scriber.height, 1), dtype=tf.float32),
+        tf.TensorSpec(shape=(batch_size, scriber.height, scriber.width, 1), dtype=tf.float32),
         tf.TensorSpec(shape=(batch_size, datagen.labelswidth), dtype=tf.int32),
         tf.TensorSpec(shape=(batch_size,), dtype=tf.int32),
         tf.TensorSpec(shape=(batch_size,), dtype=tf.int32))
@@ -66,6 +66,9 @@ def proper_x_y(images, labels, image_lengths, label_lengths):
 dataset = dataset.map(proper_x_y)
 
 ########################################################################### Command
+out_dir = Path(args.output_dir)
+out_dir.mkdir(parents=True, exist_ok=True)
+
 if args.command == "spec":
     print(f"Running spec with num={args.num}")
     layers = specs[int(args.num)]
@@ -73,7 +76,7 @@ if args.command == "spec":
     pkl_namer = f"{out_dir}/sp-{args.num}-{{:02d}}-{{}}".format
 
 elif args.command == "banti":
-    print(f"Running banti with {args.pkl_file}, {args.string_arg}")
+    print(f"Running banti with {args.pkl_file}, {args.rnnarg}")
     in_pkl_stem = Path(args.pkl_file).stem
     mb = ModelBuilder.from_banti(xy_info, args.pkl_file, args.rnnarg)
     pkl_namer = f"{out_dir}/bn-{in_pkl_stem}-{{:02d}}-{{}}".format

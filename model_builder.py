@@ -1,5 +1,5 @@
-import os.path
 import pickle
+import tensorflow as tf
 
 from tensorflow import keras
 from tensorflow.keras.layers import Layer, Input, Conv2D, MaxPooling2D, Reshape, Dense, \
@@ -8,6 +8,27 @@ from tensorflow.keras.layers import Layer, Input, Conv2D, MaxPooling2D, Reshape,
 from banti2chamanti import banti2chamanti
 from utils import rnn, write_dict
 
+
+class CRNNReshape(Layer):
+    """
+    Custom layer to reshape (B, h, w, C) to (B, w, C*h) for CRNN models.
+     to convert CNN feature maps to RNN sequence input.
+    """
+    def __init__(self, **kwargs):
+        super(CRNNReshape, self).__init__(**kwargs)
+
+    def call(self, inputs):
+        B, h, w, c = inputs.shape
+        x = tf.transpose(inputs, perm=[0, 2, 1, 3])  # (B, w, h, C)
+        return tf.reshape(x, [B, w, h*c])
+
+    def compute_output_shape(self, input_shape):
+        batch, height, width, channels = input_shape
+        return (batch, width, height * channels if height and channels else None)
+
+    def get_config(self):
+        config = super(CRNNReshape, self).get_config()
+        return config
 
 class CTCLayer(Layer):
     """ You can directly add the loss to the model. But having this class makes the model summary look good. """
@@ -31,12 +52,12 @@ class ModelBuilder:
         alphabet_size = xy_info["alphabet_size"]
 
         # Inputs to the Neural Network
-        image = Input(name="image", batch_shape=(batch_size, slab_max_wd, slab_ht, 1), dtype="float32")
+        image = Input(name="image", batch_shape=(batch_size, slab_ht, slab_max_wd, 1), dtype="float32")
         labeling = Input(name="labeling", batch_shape=(batch_size, labels_max_len,), dtype="int64")
         image_width = Input(name='image_width', batch_shape=(batch_size, 1,), dtype='int64')
         labeling_length = Input(name='labeling_length', batch_shape=(batch_size, 1,), dtype='int64')
 
-        i, width_down, height_down, num_filters = 0, 1, 1, 1
+        i, height_down, width_down, num_filters = 0, 1, 1, 1
         layers = []
 
         # Add conv pool layers
@@ -47,8 +68,8 @@ class ModelBuilder:
                 layer = Conv2D(**largs)
             elif name.lower().startswith("pool"):
                 pool_size = largs["pool_size"]
-                width_down *= pool_size[0]
-                height_down *= pool_size[1]
+                height_down *= pool_size[0]
+                width_down *= pool_size[1]
                 layer = MaxPooling2D(**largs)
             else:
                 break
@@ -56,8 +77,9 @@ class ModelBuilder:
             i += 1
 
         # Flatten 3D maps to 2D
-        new_shape = slab_max_wd // width_down, (slab_ht // height_down) * num_filters
-        layers.append(Reshape(target_shape=new_shape, name="reshape"))
+        # (B, H//h_down, W//w_down, C) -> (B, W//w_down, C*H//h_down)
+        # new_shape = slab_max_wd // width_down, (slab_ht // height_down) * num_filters
+        layers.append(CRNNReshape(name="reshape"))
 
         # Add dense layers
         while layer_args[i]['name'].lower().startswith('den'):
@@ -124,6 +146,9 @@ class ModelBuilder:
             xy_info_read, layer_args, list_of_weights = pickle.load(f)
         for k in xy_info_read:
             assert xy_info[k] == xy_info_read[k], f"Could not match Key '{k}' : {xy_info[k]} != {xy_info_read[k]}"
+        print("Initializng from Chamanti model at ", pkl_file_name)
+        for i, (l, w) in enumerate(zip(layer_args, list_of_weights)):
+            print("Layer ", i, " ", l, w.shape )
         return cls(xy_info, layer_args, list_of_weights)
 
     @classmethod

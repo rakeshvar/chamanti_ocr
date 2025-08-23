@@ -7,11 +7,11 @@ reset = attr('reset')
 cols = np.array([f'{fg(231)}█'] + [f'{fg(250 -i)}█' for i in range(19)])
 
 
-def slab_log(slab, names=None):
+def slab_log(slab, names=None):  # slab is scaled_sown_width x chosen_chars
     cslab = cols[np.clip(np.floor(-2*np.log2(slab)).astype(int), 0, 19)]
     if names is None:
-        names = ' ' * slab.shape[0]
-    for ir, r in enumerate(cslab):
+        names = ' ' * slab.shape[1]
+    for ir, r in enumerate(cslab.T):         # Transposed because chars should be in rows
         print(f'{ir:2d}¦' + ''.join(r) + reset + f'¦ {names[ir]}')
 
 
@@ -95,7 +95,7 @@ class PostProcessor:
                 print('SoftMax Firings:')
                 l = list(shown_labels) + [0, self.n_classes] + extra_labels
                 c = shown_chars + ['space', 'blank'] + extra_chars
-                slab_log(softmax_firings[l], c)
+                slab_log(softmax_firings[:, l], c)
 
     def editdistances(self, truths, lengths, probabilities, problengths):
         guesses = [self.decode(prob[:il].T) for prob, il in zip(probabilities, problengths)]
@@ -106,13 +106,13 @@ class PostProcessor:
         return int(100*err)
 
     def show_batch(self,
-                   images, image_lengths,
+                   images, image_lengths,        # (B, H, W), (B,)
                    labels, label_lengths,
-                   probabilities, probs_lengths,
+                   probabilities, probs_lengths, # (B, W, A), (B,)
                    num_samples=5):
         for i in range(num_samples):
             self.show_all(labels[i, :label_lengths[i]],
-                          images[i, :image_lengths[i]:3, ::2, 0].T,
-                          probabilities[i, :probs_lengths[i]].T,
+                          images[i, ::2, :image_lengths[i]:3, 0],  # half rows, third columns (H//2, W'//3)
+                          probabilities[i, :probs_lengths[i], :],  # (W//w_down, A)
                           i == num_samples-1)
         return self.editdistances(labels, label_lengths, probabilities, probs_lengths)
