@@ -7,7 +7,7 @@ reset = attr('reset')
 cols = np.array([f'{fg(231)}█'] + [f'{fg(250 -i)}█' for i in range(19)])
 
 
-def slab_log(slab, names=None):  # slab is scaled_sown_width x chosen_chars
+def slab_log(slab, names=None):  # slab is scaled_down_width x chosen_chars
     cslab = cols[np.clip(np.floor(-2*np.log2(slab)).astype(int), 0, 19)]
     if names is None:
         names = ' ' * slab.shape[1]
